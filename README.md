@@ -21,6 +21,25 @@ The client needed an internal document intelligence tool capable of answering co
 
 ---
 
+## Live Application Walkthrough
+
+### 1. Clean Zero-Configuration Upload Interface
+![Upload Interface](assets/screen_1.png)
+
+### 2. Automated PDF Indexing & Workspace Initialization
+![Workspace Initialization](assets/screen_2.png)
+
+### 3. Split-Screen Document Q&A & Grounded Answers
+![Document Q&A](assets/screen_3.png)
+
+### 4. Verifiable Page Citations & Reasoning Trace
+![Page Citations](assets/screen_4.png)
+
+### 5. Side-by-Side Source Page Inspector
+![Source Page Inspector](assets/screen_5.png)
+
+---
+
 ## System Architecture
 
 To satisfy both high visual accuracy and low-memory CPU hosting, DocuLens decouples **hybrid candidate retrieval** from **multimodal Vision-Language reasoning**:
@@ -33,7 +52,7 @@ Uploaded PDF Document
    ├──► Hybrid Retrieval Engine (CPU / < 200 MB RAM)
    │       ├── Lexical Search : BM25Okapi (exact numbers, product codes & CJK character matching)
    │       ├── Semantic Search: Dense embeddings (gemini-embedding-001, 768-d) + FAISS IndexFlatIP
-   │       └── Fusion         : Reciprocal Rank Fusion (RRF, k = 60) ──► Top-K Candidate Pages
+   │       └── Fusion         : Reciprocal Rank Fusion (RRF, k = 60) ──► Top-3 Candidate Pages
    │
    └──► Multimodal VLM Reasoning (gemini-3.5-flash-lite, temperature = 0)
            ├── Inputs : Extracted page text (spelling/code precision) + RGB page images (visual layout)
@@ -41,8 +60,8 @@ Uploaded PDF Document
 ```
 
 ### Engineering Trade-Offs (R&D vs. Production Sign-Off)
-* **R&D Upper-Bound Testing (`notebooks/`):** Benchmarked heavy local cross-encoder reranking (`BGE-M3` + `bge-reranker-v2-m3`) on a Tesla T4 GPU (~5.5 GB VRAM) to establish target retrieval ceilings.
-* **Production Architecture (`src/rag_engine.py`):** Replaced GPU-dependent local models with `BM25` + `gemini-embedding-001` + `FAISS`, eliminating GPU infrastructure costs while preserving the exact multimodal VLM prompting pipeline.
+- **R&D Upper-Bound Testing (`notebooks/`):** Benchmarked heavy local cross-encoder reranking (`BGE-M3` + `bge-reranker-v2-m3`) on a Tesla T4 GPU (~5.5 GB VRAM) to establish target retrieval ceilings.
+- **Production Architecture (`src/rag_engine.py`):** Replaced GPU-dependent local models with `BM25` + `gemini-embedding-001` + `FAISS`, eliminating GPU infrastructure costs while preserving the exact multimodal VLM prompting pipeline.
 
 ---
 
@@ -65,9 +84,9 @@ All four validation misses in `results/train_validation_results.csv` were audite
 
 | Query ID | Root-Cause Category | Ground Truth | System Output | Diagnostic Finding & Production Mitigation |
 | :--- | :--- | :--- | :--- | :--- |
-| **`q_0013`** | Retrieval Window Cutoff (`Top-3`) | `12.2倍` *(12.2x)* — Page `6` | `該当なし` *(Not applicable)* — Page `14` | Evidence page ranked #4/#5, outside the `Top-3` validation cap. **Mitigation:** Configured UI slider up to `Top-5` (restores 98.4% recall). |
-| **`q_0015`** | Multi-Page Retrieval Cutoff | `[5411, 5811, 3009]` — Pages `1, 2, 3, 15` | `['5411', '5811', '7011']` — Pages `2, 3, 8` | Cross-page aggregation query; Page `15` fell outside `Top-3`. **Mitigation:** Use `Top-5` retrieval for multi-item list queries. |
-| **`q_0009`** | Fine-Grained Visual Ambiguity | `['4NPhA', '4N1NPT', '24DN1NPT']` — Page `5` | `['4NPhA', '4NINPT', '24DN1NPT']` — Page `5` | Located exact page (`[5]`), but VLM confused `1` with `I` in dense chemical nomenclature (`4N1NPT`). **Mitigation:** Added `200 DPI` high-resolution toggle in sidebar. |
+| **`q_0013`** | Retrieval Window Cutoff (`Top-3`) | `12.2倍` *(12.2x)* — Page `6` | `該当なし` *(Not applicable)* — Page `14` | Evidence page ranked #4/#5, outside the `Top-3` latency/cost budget. **Mitigation:** Tune `DEFAULT_TOP_K = 5` in `app.py` for high-recall deployments (restores 98.4% recall). |
+| **`q_0015`** | Multi-Page Retrieval Cutoff | `[5411, 5811, 3009]` — Pages `1, 2, 3, 15` | `['5411', '5811', '7011']` — Pages `2, 3, 8` | Cross-page aggregation query; Page `15` fell outside `Top-3`. **Mitigation:** Expand `DEFAULT_TOP_K` to `5` for multi-item aggregation workloads. |
+| **`q_0009`** | Fine-Grained Visual Ambiguity | `['4NPhA', '4N1NPT', '24DN1NPT']` — Page `5` | `['4NPhA', '4NINPT', '24DN1NPT']` — Page `5` | Located exact page (`[5]`), but VLM confused `1` with `I` in dense chemical nomenclature (`4N1NPT`). **Mitigation:** Increase `DEFAULT_RENDER_DPI = 200` in `app.py` for dense technical corpora. |
 | **`q_0003`** | Adjacent List Item Selection | `['ITリテラシーの向上', '実践的なITスキルの習得']` *(Improving IT literacy, Acquiring practical IT skills)* — Pages `13, 21` | `['IT企業への就職・起業', '実践的なITスキルの習得']` *(IT employment/entrepreneurship, Acquiring practical IT skills)* — Pages `13, 21` | Located exact pages (`[13, 21]`) and matched 1/2 items, selecting a neighboring bullet point for the second item. |
 
 ---
@@ -75,20 +94,22 @@ All four validation misses in `results/train_validation_results.csv` were audite
 ## Delivered Repository Structure
 
 ```text
-├── app.py                              # Streamlit client web interface (upload, chat, cited page viewer)
-├── requirements.txt                    # Production CPU dependencies
-├── README.md                           # Client specifications, system architecture & QA benchmarks
-├── .gitignore                          # Blocks API keys, raw datasets & heavy binary artifacts
-├── src/
-│   ├── __init__.py
-│   └── rag_engine.py                   # Modular Hybrid BM25 + FAISS retrieval & Gemini VLM engine
-├── notebooks/
-│   ├── 01_data_inspection.ipynb        # Corpus schema, language distribution & page audit
-│   ├── 02_preprocess.ipynb             # PyMuPDF text extraction, OCR fallback & page caching
-│   ├── 03_retrieve.ipynb             # Hybrid BM25 + dense retrieval indexing & Recall@K evaluation
-│   └── 04_vlm_answer.ipynb             # Multimodal VLM inference, validation & error breakdown
-└── results/
-    └── train_validation_results.csv    # Full 16-row validation audit log & match metrics
+├── README.md                               # Client specifications, walkthrough & QA benchmarks
+├── assets/                                 # Application UI screenshots
+└── doculens_lava/
+    ├── app.py                              # Zero-config Streamlit web interface & page inspector
+    ├── requirements.txt                    # Production CPU dependencies
+    ├── .gitignore                          # Blocks API keys, raw datasets & heavy binary artifacts
+    ├── src/
+    │   ├── __init__.py
+    │   └── rag_engine.py                   # Modular Hybrid BM25 + FAISS retrieval & Gemini VLM engine
+    ├── notebooks/
+    │   ├── 01_data_inspection.ipynb        # Corpus schema, language distribution & page audit
+    │   ├── 02_preprocess.ipynb             # PyMuPDF text extraction, OCR fallback & page caching
+    │   ├── 03_retrieve.ipynb             # Hybrid BM25 + dense retrieval indexing & Recall@K evaluation
+    │   └── 04_vlm_answer.ipynb             # Multimodal VLM inference, validation & error breakdown
+    └── results/
+        └── train_validation_results.csv    # Full 16-row validation audit log & match metrics
 ```
 
 ---
@@ -97,14 +118,14 @@ All four validation misses in `results/train_validation_results.csv` were audite
 
 1. **Install dependencies:**
    ```bash
-   pip install -r requirements.txt
+   pip install -r doculens_lava/requirements.txt
    ```
-2. **Set API credentials:**
-   Obtain a Gemini API key from [Google AI Studio](https://aistudio.google.com/) and either enter it directly in the application sidebar or add it to `.streamlit/secrets.toml`:
+2. **Configure server secret:**
+   Obtain a Gemini API key from [Google AI Studio](https://aistudio.google.com/) and add it to `.streamlit/secrets.toml` (or Streamlit Community Cloud Secrets):
    ```toml
    GEMINI_API_KEY = "your_gemini_api_key"
    ```
 3. **Launch the application:**
    ```bash
-   streamlit run app.py
+   streamlit run doculens_lava/app.py
    ```
