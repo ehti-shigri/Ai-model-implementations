@@ -1,0 +1,17 @@
+# Credentials & environment
+kaggle.json
+.env
+.streamlit/secrets.toml
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Raw datasets & heavy local artifacts
+outputs/
+*.parquet
+*.npy
+*.pdf
+*.faiss
